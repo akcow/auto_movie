@@ -1,0 +1,243 @@
+图生视频-基于首帧
+Python
+
+import os
+from volcenginesdkarkruntime import Ark
+
+# 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
+# 初始化Ark客户端，从环境变量中读取您的API Key
+
+client = Ark(
+    # 从环境变量中获取您的 API Key。此为默认方式，您可根据需要进行修改
+    api_key=os.environ.get("ARK_API_KEY"),
+)
+
+print("----- create request -----")
+# 创建视频生成任务
+create_result = client.content_generation.tasks.create(
+    # 替换 <Model> 为模型的Model ID
+    model="<Model>", 
+    content=[
+        {
+            # 文本提示词与参数组合
+            "type": "text",
+            "text": "女孩抱着狐狸，女孩睁开眼，温柔地看向镜头，狐狸友善地抱着，镜头缓缓拉出，女孩的头发被风吹动 --wm true --dur 5"
+        },
+        {
+            # 图片URL
+            "type": "image_url",
+            "image_url": {
+                "url": "https://ark-project.tos-cn-beijing.volces.com/doc_image/i2v_foxrgirl.png"
+            }
+        }
+    ]
+)
+print(create_result)
+
+
+print("----- get request -----")
+# 获取任务详情
+get_result = client.content_generation.tasks.get(task_id=create_result.id)
+print(get_result)
+
+
+print("----- list request -----")
+# 列出符合特定条件的任务
+list_result = client.content_generation.tasks.list(
+    page_num=1,
+    page_size=10,
+    status="queued",  # 按状态筛选, e.g succeeded, failed, running, cancelled
+    # model="<YOUR_MODEL_EP>", # 按 ep 筛选
+    # task_ids=["test-id-1", "test-id-2"] # 按 task_id 筛选
+)
+print(list_result)
+
+
+print("----- delete request -----")
+# 通过任务 id 删除任务
+try:
+    client.content_generation.tasks.delete(task_id=create_result.id)
+    print(create_result.id)
+except Exception as e:
+    print(f"failed to delete task: {e}")
+
+图生视频-基于首尾帧
+Python
+
+import os
+from volcenginesdkarkruntime import Ark
+
+# 请确保您已将 API Key 存储在环境变量 ARK_API_KEY 中
+# 初始化Ark客户端，从环境变量中读取您的API Key
+
+client = Ark(
+    # 从环境变量中获取您的 API Key。此为默认方式，您可根据需要进行修改
+    api_key=os.environ.get("ARK_API_KEY"),
+)
+
+print("----- create request -----")
+# 创建视频生成任务
+create_result = client.content_generation.tasks.create(
+    # 设置模型ID
+    model="wan2-1-14b-flf2v-250417", 
+    content=[
+        {
+            # 文本提示词与参数组合
+            "type": "text",
+            "text": "CG动画风格，一只蓝色的小鸟从地面起飞，扇动翅膀。小鸟羽毛细腻，胸前有独特的花纹，背景是蓝天白云，阳光明媚。镜头跟随小鸟向上移动，展现出小鸟飞翔的姿态和天空的广阔。近景，仰视视角。--rs 720p  --dur 5"
+        },
+        {
+            # 首帧图片URL
+            "type": "image_url",
+            "image_url": {
+                "url": "https://ark-project.tos-cn-beijing.volces.com/doc_image/wan_input_first_frame.png"
+            },
+            "role": "first_frame"
+        },
+        {
+            # 尾帧图片URL
+            "type": "image_url",
+            "image_url": {
+                "url": "https://ark-project.tos-cn-beijing.volces.com/doc_image/wan_input_last_frame.png"
+            },
+            "role": "last_frame"
+        }
+    ]
+)
+print(create_result)
+
+
+print("----- get request -----")
+# 获取任务详情
+get_result = client.content_generation.tasks.get(task_id=create_result.id)
+print(get_result)
+
+
+print("----- list request -----")
+# 列出符合特定条件的任务
+list_result = client.content_generation.tasks.list(
+    page_num=1,
+    page_size=10,
+    status="queued",  # 按状态筛选, e.g succeeded, failed, running, cancelled
+    # model="<YOUR_MODEL_EP>", # 按 ep 筛选
+    # task_ids=["test-id-1", "test-id-2"] # 按 task_id 筛选
+)
+print(list_result)
+
+
+print("----- delete request -----")
+# 通过任务 id 删除任务
+try:
+    client.content_generation.tasks.delete(task_id=create_result.id)
+    print(create_result.id)
+except Exception as e:
+    print(f"failed to delete task: {e}")
+
+循环生成多个视频
+使用前一个生成视频的尾帧，作为后一个视频任务的首帧，循环生成多个视频。
+
+# 注意升级最新版本SDK
+# pip install -U 'volcengine-python-sdk[ark]' 
+import os
+import time
+from volcenginesdkarkruntime import Ark
+
+# 初始化 Ark 客户端
+client = Ark(
+    # 从环境变量中获取您的 API Key。此为默认方式，您可根据需要进行修改
+    api_key=os.environ.get("ARK_API_KEY"),
+)
+
+def generate_video_with_last_frame(prompt, initial_image_url=None):
+    """
+    生成视频并返回视频URL和尾帧URL
+    参数:
+    prompt: 视频生成的文本提示
+    initial_image_url: 初始图像URL (可选) 
+    返回:
+    video_url: 生成的视频URL
+    last_frame_url: 视频的最后一帧URL
+    """
+    print(f"----- 生成视频: {prompt} -----")
+    
+    # 构建内容列表
+    content = [{
+        "text": prompt,
+        "type": "text"
+    }]
+    
+    # 如果提供了初始图像，则添加到内容中
+    if initial_image_url:
+        content.append({
+            "image_url": {
+                "url": initial_image_url
+            },
+            "type": "image_url"
+        })
+    
+    # 创建视频生成任务
+    create_result = client.content_generation.tasks.create(
+        model="doubao-seedance-1-0-lite-i2v-250428",
+        content=content,
+        return_last_frame=True
+    )
+    
+    # 轮询查询任务状态
+    task_id = create_result.id
+    while True:
+        get_result = client.content_generation.tasks.get(task_id=task_id)
+        status = get_result.status
+        
+        if get_result.status == "succeeded":
+            print("视频生成成功")
+            try:
+                if hasattr(get_result, 'content') and hasattr(get_result.content, 'video_url') and hasattr(get_result.content, 'last_frame_url'):
+                    return get_result.content.video_url, get_result.content.last_frame_url
+                print("无法获取视频URL或尾帧URL")
+                return None, None
+            except Exception as e:
+                print(f"获取视频URL和尾帧URL时出错: {e}")
+                return None, None
+        elif status == "failed":
+            print(f"----- 视频生成失败 -----")
+            print(f"错误: {get_result.error}")
+            return None, None
+        else:
+            print(f"当前状态: {status}, 10秒后重试...")
+            time.sleep(10)
+
+
+
+if __name__ == "__main__":
+    # 定义3个视频的提示词
+    prompts = [
+        "女孩抱着狐狸，女孩睁开眼，温柔地看向镜头，狐狸友善地抱着，镜头缓缓拉出，女孩的头发被风吹动  --ratio adaptive  --dur 5",
+        "女孩和狐狸在草地上奔跑，阳光明媚，女孩的笑容灿烂，狐狸欢快地跳跃  --ratio adaptive  --dur 5",
+        "女孩和狐狸坐在树下休息，女孩轻轻抚摸狐狸的毛发，狐狸温顺地趴在女孩腿上  --ratio adaptive  --dur 5"
+    ]
+    
+    # 存储生成的视频URL
+    video_urls = []
+    
+    # 初始图像URL
+    initial_image_url = "https://ark-project.tos-cn-beijing.volces.com/doc_image/i2v_foxrgirl.png"
+    
+    # 生成3个短视频
+    for i, prompt in enumerate(prompts):
+        print(f"生成第{i+1}个视频")
+        video_url, last_frame_url = generate_video_with_last_frame(prompt, initial_image_url)
+        
+        if video_url and last_frame_url:
+            video_urls.append(video_url)
+            print(f"第{i+1}个视频URL: {video_url}")
+            # 将当前视频的尾帧作为下一个视频的首帧
+            initial_image_url = last_frame_url
+        else:
+            print(f"第{i+1}个视频生成失败，退出程序")
+            exit(1)
+    
+    print("所有视频生成完成！")
+    print("生成的视频URL列表:")
+    for i, url in enumerate(video_urls):
+        print(f"视频 {i+1}: {url}")
+后续您可以自行使用 FFmpeg 等工具，将生成的多个短视频拼接成一个完整长视频。

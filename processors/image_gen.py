@@ -39,13 +39,23 @@ class ImageGenerator(LoggerMixin):
         self.generation_config = config.get('generation', {})
         self.storage_config = config.get('storage', {})
         
-        # API配置（按照官方项目模式）
-        self.api_key = self.api_config.get('api_key')
-        self.region = self.api_config.get('region', 'cn-beijing')
-        self.model = self.models_config.get('text2image_endpoint', 'general_v2.0')
+        # API配置（使用通用2.0模型）
+        self.access_key_id = self.api_config.get('access_key_id') or self.api_config.get('api_key')
+        self.secret_access_key = self.api_config.get('secret_access_key')
+        self.api_key = self.api_config.get('api_key')  # 兼容旧配置
+        self.region = self.api_config.get('region', 'cn-north-1')  # 通用2.0模型使用cn-north-1
+        self.model = self.models_config.get('text2image_endpoint', 'high_aes_general_v20_L')
         
-        if not self.api_key:
-            raise ValueError("文生图API配置不完整，请在config.yaml中配置api_key")
+        # 检查认证配置
+        if not self.access_key_id:
+            raise ValueError("文生图API配置不完整，请在config.yaml中配置access_key_id或api_key")
+        
+        # 如果没有secret_access_key，使用单一认证模式
+        if not self.secret_access_key:
+            self.logger.warning("未配置secret_access_key，将使用单一认证模式")
+            self.use_dual_auth = False
+        else:
+            self.use_dual_auth = True
         
         # API工具
         self.api_utils = APIUtils(config)
@@ -222,7 +232,7 @@ class ImageGenerator(LoggerMixin):
     
     def _build_image_prompt(self, description: str, style: str) -> str:
         """
-        构建图片生成提示词
+        构建图片生成提示词（按照通用2.0模型推荐结构）
         
         Args:
             description: 基础描述
@@ -231,29 +241,151 @@ class ImageGenerator(LoggerMixin):
         Returns:
             完整的提示词
         """
-        # 使用模板构建提示词
-        prompt = self.image_prompt_template.format(
-            style=style,
-            description=description
-        )
+        # 解析描述，按照推荐结构重新组织
+        parsed_components = self._parse_description_for_v2_model(description, style)
+        
+        # 按照推荐顺序构建提示词：场景 → 角色 → 构图 → 动作 → 风格
+        prompt_parts = []
+        
+        # 1. 场景描述
+        if parsed_components['scene']:
+            prompt_parts.append(parsed_components['scene'])
+        
+        # 2. 角色描述  
+        if parsed_components['character']:
+            prompt_parts.append(parsed_components['character'])
+        
+        # 3. 构图描述
+        if parsed_components['composition']:
+            prompt_parts.append(parsed_components['composition'])
+        
+        # 4. 动作描述
+        if parsed_components['action']:
+            prompt_parts.append(parsed_components['action'])
+        
+        # 5. 风格描述
+        if parsed_components['style']:
+            prompt_parts.append(parsed_components['style'])
+        else:
+            prompt_parts.append(style)
+        
+        # 组合提示词
+        base_prompt = "，".join(prompt_parts)
+        
+        # 添加质量控制和安全提示词
+        quality_prompt = self._get_quality_and_safety_prompt()
+        
+        # 组合最终提示词
+        final_prompt = f"{base_prompt}，{quality_prompt}"
         
         # 确保提示词不超过限制
-        if len(prompt) > 500:
-            # 截断描述部分
-            max_desc_len = 200
-            if len(description) > max_desc_len:
-                description = description[:max_desc_len] + "..."
-            
-            prompt = self.image_prompt_template.format(
-                style=style,
-                description=description
-            )
+        if len(final_prompt) > 800:
+            # 优先保留前面重要的部分
+            final_prompt = final_prompt[:800] + "..."
         
-        return prompt
+        return final_prompt
+    
+    def _parse_description_for_v2_model(self, description: str, style: str) -> Dict[str, str]:
+        """
+        解析描述为通用2.0模型推荐的结构
+        
+        Args:
+            description: 原始描述
+            style: 风格
+            
+        Returns:
+            解析后的组件字典
+        """
+        components = {
+            'scene': '',
+            'character': '', 
+            'composition': '',
+            'action': '',
+            'style': ''
+        }
+        
+        # 简单的关键词匹配来分类描述内容
+        desc_lower = description.lower()
+        
+        # 场景关键词
+        scene_keywords = ['庭院', '房间', '森林', '海边', '山顶', '街道', '室内', '室外', '天空', '大地']
+        for keyword in scene_keywords:
+            if keyword in description:
+                components['scene'] = f"{keyword}内"
+                break
+        
+        # 角色描述（包含人物特征的描述）
+        if '女子' in description or '女子' in description:
+            if '白衣' in description:
+                components['character'] = '一位穿白色圆领袍的女性'
+            else:
+                components['character'] = '一位女性角色'
+        elif '男子' in description or '男子' in description:
+            if '黑衣' in description:
+                components['character'] = '一位穿黑色圆领袍的男性'
+            else:
+                components['character'] = '一位男性角色'
+        
+        # 构图描述
+        if '月光' in description or '阳光' in description:
+            components['composition'] = '电影般的意境角度'
+        elif '特写' in description:
+            components['composition'] = '细致的脸特写'
+        else:
+            components['composition'] = '电影级低视角拍摄'
+        
+        # 动作描述
+        if '站立' in description or '站' in description:
+            components['action'] = '站立着'
+        elif '坐着' in description or '坐' in description:
+            components['action'] = '坐着'
+        elif '行走' in description or '走' in description:
+            components['action'] = '正在行走'
+        else:
+            components['action'] = '静态姿势'
+        
+        # 风格映射
+        style_mapping = {
+            '古风': '古风言情动漫风格',
+            '写实': '写实照片风格', 
+            '动漫': '二次元动漫手绘',
+            '唯美': '唯美治愈风',
+            '仙侠': '古风仙侠风格'
+        }
+        
+        for style_key, style_value in style_mapping.items():
+            if style_key in style:
+                components['style'] = style_value
+                break
+        
+        return components
+    
+    def _get_quality_and_safety_prompt(self) -> str:
+        """
+        获取质量控制和安全提示词
+        
+        Returns:
+            质量和安全提示词字符串
+        """
+        # 积极的质量词
+        positive_words = [
+            '超高分辨率', '竖屏9:16', '精美细节', '光影对比强烈', 
+            '色彩绚丽', '专业摄影', '高领服饰', '圆领袍'
+        ]
+        
+        # 避免的负面词（用于安全控制）
+        negative_words = [
+            'watermark', 'text', 'signature', '汉字', '字母', 'logo', 
+            'nsfw', 'nude', '深V', '锁骨', '胸部', '低分辨率', 
+            'blurry', 'worst quality', 'mutated hands'
+        ]
+        
+        # 返回积极质量词
+        return '，'.join(positive_words)
     
     async def _call_text2image_api(self, prompt: str) -> bytes:
         """
-        调用文生图API（使用Ark SDK）
+        调用文生图API（使用通用2.0模型Visual Service SDK）
         
         Args:
             prompt: 提示词
@@ -262,26 +394,59 @@ class ImageGenerator(LoggerMixin):
             图片二进制数据
         """
         try:
-            from volcenginesdkarkruntime import Ark
+            from volcengine.visual.VisualService import VisualService
             import asyncio
             
-            # 在线程池中运行同步的Ark SDK调用
+            # 在线程池中运行同步的Visual Service SDK调用
             loop = asyncio.get_event_loop()
             
             def sync_generate_image():
-                # 使用Ark SDK
-                client = Ark(api_key=self.api_key, region=self.region)
+                # 使用Visual Service SDK
+                visual_service = VisualService()
                 
-                # 生成图片
-                images = client.images.generate(
-                    model=self.model,
-                    prompt=prompt
-                )
-                
-                if images.data and len(images.data) > 0:
-                    return images.data[0].url
+                if self.use_dual_auth:
+                    # 双重认证模式
+                    visual_service.set_ak(self.access_key_id)
+                    visual_service.set_sk(self.secret_access_key)
                 else:
-                    raise ValueError("API未返回图片数据")
+                    # 单一认证模式（兼容旧配置）
+                    visual_service.set_ak(self.access_key_id)
+                
+                # 构建请求参数
+                form = {
+                    "req_key": "high_aes_general_v20_L",
+                    "prompt": prompt,
+                    "seed": -1,
+                    "scale": 3.5,
+                    "ddim_steps": 16,
+                    "width": 512,
+                    "height": 512,
+                    "use_sr": True,  # 开启超分功能
+                    "use_rephraser": True,  # 开启prompt扩写
+                    "return_url": True,
+                    "logo_info": {
+                        "add_logo": False,
+                        "position": 0,
+                        "language": 0,
+                        "opacity": 0.3
+                    }
+                }
+                
+                # 调用同步接口
+                resp = visual_service.cv_process(form)
+                
+                # 检查响应状态
+                if resp.get('code') != 10000:
+                    raise ValueError(f"API调用失败: {resp.get('message', '未知错误')}")
+                
+                # 获取图片URL
+                data = resp.get('data', {})
+                image_urls = data.get('image_urls', [])
+                
+                if image_urls and len(image_urls) > 0:
+                    return image_urls[0]
+                else:
+                    raise ValueError("API未返回图片URL")
             
             # 异步执行同步调用
             image_url = await loop.run_in_executor(None, sync_generate_image)
@@ -290,7 +455,7 @@ class ImageGenerator(LoggerMixin):
             response = await self.api_utils.make_async_request(
                 method="GET",
                 url=image_url,
-                timeout=60
+                timeout=120
             )
             
             # 处理API工具返回的响应格式
@@ -302,7 +467,7 @@ class ImageGenerator(LoggerMixin):
                 raise ValueError("下载的图片数据格式异常")
                 
         except ImportError:
-            self.logger.error("缺少volcenginesdkarkruntime依赖，请安装：pip install volcengine-sdk-ark")
+            self.logger.error("缺少volcengine依赖，请安装：pip install volcengine")
             raise
         except Exception as e:
             self.logger.error(f"文生图API调用失败: {e}")

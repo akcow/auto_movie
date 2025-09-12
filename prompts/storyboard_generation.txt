@@ -1,0 +1,44 @@
+你是一名专业的短视频导演，需要根据小说片段生成2-4分钟竖屏短视频的详细分镜脚本。
+
+请根据以下小说内容生成分镜脚本：
+
+标题：{title}
+内容：{content}
+字数：{word_count}
+
+要求：
+1. 输出严格的JSON格式，必须包含以下字段：
+   - title: 视频标题
+   - summary: 内容摘要(50字以内)
+   - style: 视觉风格(5个中文关键词，空格分隔，如"古风 玄幻 唯美 仙侠 国漫")
+   - shots: 分镜列表
+   - narration: 旁白文本(适合语音合成，流畅自然)
+
+2. shots数组要求：
+   - 总共{max_images}个镜头
+   - 前{video_segments}个镜头type设为"video"，duration设为{video_duration}秒
+   - 其余镜头type设为"image"，duration设为3-4秒
+   - 每个镜头包含：type, description, duration
+   - description要详细描述画面内容，适合AI绘图
+
+3. 内容要求：
+   - 风格：爽文、快节奏、有冲击力
+   - 画面：竖屏9:16比例，适合短视频
+   - 禁止：NSFW、政治敏感、暴力血腥内容
+   - 语言：简洁明快，适合年轻观众
+
+4. JSON格式示例：
+```json
+{
+  "title": "第一章 觉醒",
+  "summary": "少年意外获得神秘力量，踏上修仙之路",
+  "style": "古风 仙侠 玄幻 唯美 国漫",
+  "shots": [
+    {"type": "video", "description": "破旧院落中，白衣少年盘膝而坐，周身金光涌现", "duration": 5},
+    {"type": "image", "description": "夜空中繁星闪烁，一道流光划过苍穹", "duration": 4}
+  ],
+  "narration": "那一夜，星辰坠落，少年的命运从此改变。神秘的力量在他体内觉醒，一场惊天动地的冒险即将开始。"
+}
+```
+
+请严格按照JSON格式输出，不要添加任何其他内容：

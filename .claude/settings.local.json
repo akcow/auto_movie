@@ -43,7 +43,10 @@
       "Bash(git rm:*)",
       "Bash(git push:*)",
       "Bash(git filter-branch:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Read(//c/Users/wang/ai-app-lab/demohouse/chat2cartoon/**)",
+      "Bash(timeout 30 python:*)"
     ],
     "deny": [],
     "ask": []

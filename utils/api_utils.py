@@ -48,8 +48,14 @@ class APIUtils(LoggerMixin):
         """
         self.config = config
         self.api_settings = config.get('api_settings', {})
+        self.performance_settings = config.get('performance', {})
         self.max_retries = self.api_settings.get('max_retries', 3)
-        self.request_timeout = self.api_settings.get('request_timeout', 30)
+        # 从performance配置中获取超时设置，如果没有则使用api_settings，最后默认120秒
+        self.request_timeout = (
+            self.performance_settings.get('request_timeout') or 
+            self.api_settings.get('request_timeout') or 
+            120
+        )
         self.rate_limit_per_minute = self.api_settings.get('rate_limit_per_minute', 60)
         
         # 请求计数器 (用于限流)

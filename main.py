@@ -31,6 +31,8 @@ from utils.performance import (
 
 from processors.parser import TextParser
 from processors.llm_client import LLMClient
+from processors.narration_generator import NarrationGenerator
+from processors.shot_planner import ShotPlanner
 from processors.image_gen import ImageGenerator
 from processors.video_gen import VideoGenerator
 from processors.tts_client import TTSClient
@@ -70,6 +72,8 @@ class NovelToVideoProcessor:
         # 延迟初始化处理模块（按需加载）
         self._text_parser = None
         self._llm_client = None
+        self._narration_generator = None
+        self._shot_planner = None
         self._image_generator = None
         self._video_generator = None
         self._tts_client = None
@@ -90,6 +94,20 @@ class NovelToVideoProcessor:
         if self._llm_client is None:
             self._llm_client = LLMClient(self.config)
         return self._llm_client
+    
+    @property
+    def narration_generator(self):
+        """延迟加载口播文案生成器"""
+        if self._narration_generator is None:
+            self._narration_generator = NarrationGenerator(self.llm_client, self.config)
+        return self._narration_generator
+    
+    @property
+    def shot_planner(self):
+        """延迟加载智能分镜决策器"""
+        if self._shot_planner is None:
+            self._shot_planner = ShotPlanner(self.llm_client, self.config)
+        return self._shot_planner
     
     @property
     def image_generator(self):
@@ -170,42 +188,61 @@ class NovelToVideoProcessor:
             
             self.logger.info(f"文本解析完成: {text_result['word_count']}字, {text_result['chapters_found']}章")
             
-            # 2. LLM生成分镜脚本
-            self.logger.info("步骤 2/6: 生成分镜脚本")
-            script_result = self.llm_client.generate_script(text_result)
+            # 2. 生成口播文案
+            self.logger.info("步骤 2/7: 生成口播文案")
+            target_duration = self.config.get('generation', {}).get('final_duration_target', 180)
             
-            self.logger.info(f"分镜脚本生成完成: {len(script_result['shots'])}个镜头")
-            
-            # 3. 并行生成AI内容
-            self.logger.info("步骤 3/6: 生成AI内容 (图片、视频、音频)")
-            
-            # 并行执行图片生成和音频合成
-            image_task = self.image_generator.generate_images(script_result, task_id)
-            audio_task = self.tts_client.synthesize_speech(script_result, task_id)
-            
-            image_results, audio_result = await asyncio.gather(image_task, audio_task)
-            
-            self.logger.info(f"图片生成完成: {len(image_results)}张")
-            self.logger.info(f"音频合成完成: {audio_result['duration']:.1f}秒")
-            
-            # 4. 视频生成
-            self.logger.info("步骤 4/6: 生成视频片段")
-            video_results = await self.video_generator.generate_videos(
-                image_results, script_result, task_id
+            narration_result = await self.narration_generator.generate_narration(
+                text_result['content'], 
+                target_duration,
+                text_result.get('title', '小说视频')
             )
             
-            self.logger.info(f"视频生成完成: {len(video_results)}个片段")
+            self.logger.info(f"口播文案生成完成: {narration_result['word_count']}字, 预估{narration_result['estimated_duration']}秒")
             
-            # 5. 视频合成
-            self.logger.info("步骤 5/6: 合成最终视频")
-            final_video = await self.video_editor.compose_video(
-                image_results, video_results, audio_result, script_result, task_id
+            # 3. 智能分镜决策
+            self.logger.info("步骤 3/7: 智能分镜决策")
+            script_result = await self.shot_planner.plan_shots(narration_result, target_duration)
+            
+            self.logger.info(f"分镜脚本生成完成: {len(script_result['shots'])}个分镜, 总时长{script_result['total_duration']}秒")
+            
+            # 4. 生成完整TTS音频
+            self.logger.info("步骤 4/7: 生成完整配音")
+            audio_result = await self.tts_client.synthesize_long_speech(
+                narration_result['narration'], 
+                target_duration, 
+                task_id
+            )
+            
+            self.logger.info(f"配音生成完成: {audio_result['duration']:.1f}秒")
+            
+            # 5. 并行生成图片内容
+            self.logger.info("步骤 5/7: 生成分镜图片")
+            image_results = await self.image_generator.generate_images_from_script(script_result, task_id)
+            
+            self.logger.info(f"图片生成完成: {len(image_results)}张")
+            
+            # 6. 生成动态视频片段（仅前3个分镜）
+            self.logger.info("步骤 6/7: 生成动态视频片段")
+            dynamic_shots = [shot for shot in script_result['shots'] if shot.get('type') == 'dynamic']
+            dynamic_images = image_results[:len(dynamic_shots)]
+            
+            video_results = await self.video_generator.generate_videos_from_images(
+                dynamic_images, dynamic_shots, task_id
+            )
+            
+            self.logger.info(f"动态视频生成完成: {len(video_results)}个片段")
+            
+            # 7. 合成最终视频（基于新流程）
+            self.logger.info("步骤 7/7: 合成最终视频")
+            final_video = await self.video_editor.compose_video_with_narration(
+                image_results, video_results, audio_result, script_result, narration_result, task_id
             )
             
             self.logger.info(f"视频合成完成: {final_video['file_path']}")
             
-            # 6. 后处理和统计
-            self.logger.info("步骤 6/6: 完成处理")
+            # 8. 后处理和统计
+            self.logger.info("完成处理和清理")
             
             # 清理临时文件
             self.video_editor.cleanup_temp_files(task_id)

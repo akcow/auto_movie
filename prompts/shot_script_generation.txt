@@ -1,0 +1,50 @@
+你是一个专业的视频分镜师，请为以下视频解说创作分镜脚本。
+
+视频信息：
+标题：{title}
+总时长：{target_duration}秒
+目标分镜数：{shot_count}个
+
+口播文案：
+{narration}
+
+关键要点：
+{key_points}
+
+分镜要求：
+1. 前{dynamic_shot_count}个分镜为动态视频分镜（每个5秒，共15秒）
+2. 其余分镜为静态图片分镜（总计{static_duration}秒）
+3. 每个分镜都要有详细的视觉描述
+4. 分镜内容要与口播文案紧密对应
+5. 静态分镜时长在{min_shot_duration}-{max_shot_duration}秒之间
+
+请返回JSON格式的分镜脚本：
+{
+    "title": "视频标题",
+    "total_duration": 目标时长,
+    "shot_count": 分镜数量,
+    "shots": [
+        {
+            "index": 1,
+            "type": "dynamic",  // "dynamic" 或 "static"
+            "duration": 5,
+            "narration_text": "对应的口播文案片段",
+            "visual_description": "详细的视觉场景描述",
+            "scene_elements": ["元素1", "元素2", "元素3"],
+            "mood": "画面情感氛围",
+            "camera_angle": "机位角度建议",
+            "lighting": "光线效果",
+            "style_notes": "风格说明"
+        },
+        // 更多分镜...
+    ],
+    "style_consistency": "整体风格一致性说明",
+    "narrative_flow": "叙事节奏说明"
+}
+
+注意事项：
+- 确保每个分镜的视觉描述具体生动
+- 前{dynamic_shot_count}个分镜要适合生成动态视频
+- 静态分镜要有丰富的视觉层次
+- 分镜切换要自然流畅
+- 总时长必须严格等于{target_duration}秒

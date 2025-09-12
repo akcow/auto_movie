@@ -54,6 +54,73 @@ class LLMClient(LoggerMixin):
         self.video_segments = self.generation_config.get('video_segments', 3)
         self.video_duration = self.generation_config.get('video_duration', 5)
     
+    async def generate_text(self, prompt: str, system_prompt: str = None) -> str:
+        """
+        通用的文本生成方法
+        
+        Args:
+            prompt: 用户提示词
+            system_prompt: 系统提示词（可选）
+            
+        Returns:
+            生成的文本内容
+        """
+        try:
+            # 使用默认系统提示词
+            if system_prompt is None:
+                system_prompt = "你是一个专业的AI助手，能够根据用户需求生成高质量的内容。"
+            
+            # 构建请求数据
+            request_data = {
+                "model": self.endpoint,
+                "messages": [
+                    {
+                        "role": "system", 
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 2048,
+                "top_p": 0.9
+            }
+            
+            # 构建请求头
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+            
+            # API URL
+            api_url = f"https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+            
+            # 发起请求，增加超时时间解决网络问题
+            response = self.api_utils.make_request(
+                method="POST",
+                url=api_url,
+                headers=headers,
+                json_data=request_data,
+                timeout=360  # 增加到360秒，支持分镜脚本生成等复杂任务
+            )
+            
+            # 解析响应
+            if response and 'choices' in response and len(response['choices']) > 0:
+                content = response['choices'][0]['message']['content']
+                
+                # 记录成本
+                self._track_cost(response)
+                
+                return content.strip()
+            else:
+                raise ValueError("API响应格式无效")
+                
+        except Exception as e:
+            self.logger.error(f"文本生成失败: {e}")
+            raise
+    
     def generate_script(self, text_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         生成分镜脚本
@@ -221,7 +288,7 @@ class LLMClient(LoggerMixin):
                 url=api_url,
                 headers=headers,
                 json_data=request_data,
-                timeout=60  # LLM调用超时时间更长
+                timeout=360  # LLM调用超时时间为360秒，支持分镜脚本生成等复杂任务
             )
             
             return response
